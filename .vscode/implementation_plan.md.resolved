@@ -1,0 +1,133 @@
+# Plan de Conversion 3D - Race Challenge
+
+## Résumé
+Conversion du jeu de course 2D en 3D en utilisant **P5.js WEBGL mode**. Le jeu aura une vue "derrière la voiture" (third-person racing view) avec un circuit en 3D, des voitures modélisées en 3D, et une caméra qui suit le joueur.
+
+## Changements Visuels Attendus
+
+| Avant (2D) | Après (3D) |
+|------------|------------|
+| Vue de dessus | Vue derrière la voiture |
+| Piste plate | Piste avec élévation/relief |
+| Voitures 2D (rectangles) | Voitures 3D (box models) |
+| HUD sur canvas | HUD en overlay 2D |
+
+---
+
+## Proposed Changes
+
+### 1. sketch.js - Game Core
+
+#### [MODIFY] [sketch.js](file:///c:/Users/HASSAN/OneDrive/Bureau/GameProject/sketch.js)
+
+- Modifier `createCanvas(1000, 700)` → `createCanvas(1000, 700, WEBGL)`
+- Ajouter un système de rendu dual:
+  - **3D Canvas** pour le jeu (WEBGL)
+  - **2D Overlay** pour le HUD et les menus
+- Implémenter la caméra 3D qui suit le joueur:
+  ```javascript
+  // Caméra derrière la voiture
+  let cameraOffset = createVector(-200, 100, 0);
+  camera(
+    playerCar.position.x + cameraOffset.x,
+    cameraOffset.y,
+    playerCar.position.y + cameraOffset.z,
+    playerCar.position.x, 0, playerCar.position.y,
+    0, -1, 0
+  );
+  ```
+- Ajouter éclairage 3D (ambient + directional)
+
+---
+
+### 2. Track.js - Circuit 3D
+
+#### [MODIFY] [Track.js](file:///c:/Users/HASSAN/OneDrive/Bureau/GameProject/Track.js)
+
+- Remplacer le système de buffer 2D par un rendu 3D temps réel:
+  - **Sol** : Plan texturé (herbe)
+  - **Piste** : Shape 3D avec épaisseur légère
+  - **Bordures** : Cubes alternés rouge/blanc
+  - **Ligne de départ** : Pattern damier en 3D
+- Convertir les coordonnées 2D (x, y) en 3D (x, 0, z)
+- Ajouter méthode `show3D()` pour le rendu WEBGL
+
+---
+
+### 3. PlayerCar.js - Voiture Joueur 3D
+
+#### [MODIFY] [PlayerCar.js](file:///c:/Users/HASSAN/OneDrive/Bureau/GameProject/PlayerCar.js)
+
+- Remplacer le rendu 2D par un modèle 3D:
+  - Châssis principal (box)
+  - Roues (cylinders)
+  - Ailerons avant/arrière
+  - Effet nitro (particules 3D)
+- Ajouter méthode `show3D()`:
+  ```javascript
+  show3D() {
+    push();
+    translate(this.position.x, -8, this.position.y);
+    rotateY(-this.angle);
+    // Draw 3D car model
+    pop();
+  }
+  ```
+
+---
+
+### 4. FollowerCar.js - Voitures IA 3D
+
+#### [MODIFY] [FollowerCar.js](file:///c:/Users/HASSAN/OneDrive/Bureau/GameProject/FollowerCar.js)
+
+- Même modèle 3D que le joueur avec couleurs différentes
+- Ajouter méthode `show3D()`
+
+---
+
+### 5. LevelSelect.js - Menus (Rester en 2D)
+
+#### [MODIFY] [LevelSelect.js](file:///c:/Users/HASSAN/OneDrive/Bureau/GameProject/LevelSelect.js)
+
+- Les menus resteront en 2D (plus simple et plus lisible)
+- Utiliser `camera()` reset pour afficher en 2D:
+  ```javascript
+  push();
+  camera(0, 0, (height/2) / tan(PI/6), 0, 0, 0, 0, 1, 0);
+  // Draw 2D menu
+  pop();
+  ```
+
+---
+
+## Architecture du Rendu
+
+```mermaid
+graph TD
+    A[draw] --> B{gameState?}
+    B --> |menu/levelSelect| C[Rendu 2D]
+    B --> |playing| D[Rendu 3D]
+    D --> E[Setup Camera]
+    E --> F[Lighting]
+    F --> G[track.show3D]
+    G --> H[aiCars.show3D]
+    H --> I[playerCar.show3D]
+    I --> J[HUD Overlay 2D]
+```
+
+---
+
+## Verification Plan
+
+### Test Manuel (Utilisateur)
+1. Ouvrir [index.html](file:///c:/Users/HASSAN/OneDrive/Bureau/GameProject/index.html) dans un navigateur
+2. Vérifier que le menu principal s'affiche correctement
+3. Sélectionner un niveau et démarrer la course
+4. Vérifier:
+   - La caméra suit bien la voiture du joueur
+   - Les contrôles (flèches/WASD) fonctionnent
+   - Le nitro (SHIFT) fonctionne
+   - Les voitures IA sont visibles et se déplacent
+   - La piste est visible en 3D
+   - Le HUD (position, tours, nitro) est lisible
+5. Terminer une course pour vérifier la fin de partie

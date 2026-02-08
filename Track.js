@@ -1,7 +1,6 @@
 /**
- * Track.js - Premium Racing Track with Pre-rendered Graphics
- * Optimized: Uses offscreen buffer to eliminate lag
- * Style: Inspired by top-down racing games
+ * Track.js - Premium Racing Track with Obstacles
+ * Features: Wider tracks, cones, barriers, oil slicks
  */
 
 class Track {
@@ -9,19 +8,27 @@ class Track {
         this.level = level;
         this.waypoints = [];
         this.trackWidth = this.getTrackWidth();
-        this.kerbWidth = 10;
+        this.kerbWidth = 12;
         this.innerEdge = [];
         this.outerEdge = [];
+
+        // Obstacle system
+        this.obstacles = [];
 
         // Pre-rendered graphics buffer for performance
         this.trackBuffer = null;
         this.needsRedraw = true;
 
         this.generateCircuit();
+        this.generateObstacles();
     }
 
+    /**
+     * Track width - wider tracks that get narrower with level
+     */
     getTrackWidth() {
-        return max(70, 110 - this.level * 8);
+        // Base: 160px, minimum: 100px
+        return max(100, 160 - this.level * 6);
     }
 
     /**
@@ -151,6 +158,141 @@ class Track {
         }
     }
 
+    /**
+     * Generate obstacles based on level difficulty
+     * Types: cone, barrier, oil
+     */
+    generateObstacles() {
+        this.obstacles = [];
+
+        if (this.waypoints.length < 10) return;
+
+        const totalWaypoints = this.waypoints.length;
+
+        // Number of obstacles increases with level
+        const numCones = min(this.level + 2, 12);
+        const numBarriers = this.level >= 4 ? min(this.level - 2, 6) : 0;
+        const numOilSlicks = this.level >= 7 ? min(this.level - 5, 4) : 0;
+
+        // Generate cones (on track edges)
+        for (let i = 0; i < numCones; i++) {
+            const waypointIdx = floor(random(5, totalWaypoints - 5));
+            const wp = this.waypoints[waypointIdx];
+
+            // Get perpendicular direction
+            const next = this.waypoints[(waypointIdx + 1) % totalWaypoints];
+            const prev = this.waypoints[(waypointIdx - 1 + totalWaypoints) % totalWaypoints];
+            const forward = p5.Vector.sub(next, prev);
+            forward.normalize();
+            const perp = createVector(-forward.y, forward.x);
+
+            // Place cone on left or right side
+            const side = random() > 0.5 ? 1 : -1;
+            const offset = (this.trackWidth / 2 - 20) * side;
+            const position = p5.Vector.add(wp, p5.Vector.mult(perp, offset));
+
+            this.obstacles.push({
+                type: 'cone',
+                position: position,
+                radius: 12,
+                waypointIndex: waypointIdx,
+                color: color(255, 140, 0)  // Orange
+            });
+        }
+
+        // Generate barriers (on track, require avoidance)
+        for (let i = 0; i < numBarriers; i++) {
+            const waypointIdx = floor(random(10, totalWaypoints - 10));
+            const wp = this.waypoints[waypointIdx];
+
+            const next = this.waypoints[(waypointIdx + 1) % totalWaypoints];
+            const prev = this.waypoints[(waypointIdx - 1 + totalWaypoints) % totalWaypoints];
+            const forward = p5.Vector.sub(next, prev);
+            forward.normalize();
+            const perp = createVector(-forward.y, forward.x);
+
+            // Barrier slightly off-center
+            const offset = random(-this.trackWidth / 4, this.trackWidth / 4);
+            const position = p5.Vector.add(wp, p5.Vector.mult(perp, offset));
+
+            this.obstacles.push({
+                type: 'barrier',
+                position: position,
+                radius: 25,
+                width: 40,
+                height: 15,
+                angle: forward.heading(),
+                waypointIndex: waypointIdx,
+                color: color(200, 50, 50)  // Red
+            });
+        }
+
+        // Generate oil slicks (cause sliding)
+        for (let i = 0; i < numOilSlicks; i++) {
+            const waypointIdx = floor(random(15, totalWaypoints - 15));
+            const wp = this.waypoints[waypointIdx];
+
+            const next = this.waypoints[(waypointIdx + 1) % totalWaypoints];
+            const prev = this.waypoints[(waypointIdx - 1 + totalWaypoints) % totalWaypoints];
+            const forward = p5.Vector.sub(next, prev);
+            forward.normalize();
+            const perp = createVector(-forward.y, forward.x);
+
+            const offset = random(-this.trackWidth / 3, this.trackWidth / 3);
+            const position = p5.Vector.add(wp, p5.Vector.mult(perp, offset));
+
+            this.obstacles.push({
+                type: 'oil',
+                position: position,
+                radius: 30,
+                waypointIndex: waypointIdx,
+                color: color(30, 30, 40, 180)  // Dark oil
+            });
+        }
+    }
+
+    /**
+     * Check if position collides with any obstacle
+     * Returns: { hit: boolean, type: string, obstacle: object }
+     */
+    checkObstacleCollision(position) {
+        for (let obs of this.obstacles) {
+            const dist = p5.Vector.dist(position, obs.position);
+            if (dist < obs.radius) {
+                return { hit: true, type: obs.type, obstacle: obs };
+            }
+        }
+        return { hit: false, type: null, obstacle: null };
+    }
+
+    /**
+     * Get avoidance force for AI
+     */
+    getObstacleAvoidanceForce(position, velocity, lookAhead = 60) {
+        let avoidForce = createVector(0, 0);
+
+        for (let obs of this.obstacles) {
+            const toObs = p5.Vector.sub(obs.position, position);
+            const dist = toObs.mag();
+
+            // Only consider obstacles ahead and within range
+            if (dist < lookAhead + obs.radius) {
+                const dotProduct = p5.Vector.dot(velocity.copy().normalize(), toObs.copy().normalize());
+
+                // Obstacle is ahead
+                if (dotProduct > 0.3) {
+                    // Steer away from obstacle
+                    const perpForce = createVector(-toObs.y, toObs.x);
+                    perpForce.normalize();
+                    perpForce.mult(map(dist, 0, lookAhead, 1.5, 0.3));
+                    avoidForce.add(perpForce);
+                }
+            }
+        }
+
+        return avoidForce;
+    }
+
     getClosestWaypointIndex(pos) {
         let closestDist = Infinity;
         let closestIndex = 0;
@@ -253,6 +395,9 @@ class Track {
         // === START/FINISH ===
         this.drawStartFinishToBuffer(g);
 
+        // === OBSTACLES ===
+        this.drawObstaclesToBuffer(g);
+
         // === LEVEL BADGE ===
         g.fill(0, 0, 0, 180);
         g.noStroke();
@@ -267,6 +412,64 @@ class Track {
         g.textStyle(NORMAL);
 
         this.needsRedraw = false;
+    }
+
+    /**
+     * Draw obstacles to buffer
+     */
+    drawObstaclesToBuffer(g) {
+        for (let obs of this.obstacles) {
+            g.push();
+            g.translate(obs.position.x, obs.position.y);
+
+            if (obs.type === 'cone') {
+                // Orange cone with white stripe
+                g.noStroke();
+                g.fill(255, 140, 0);
+                g.beginShape();
+                g.vertex(0, -12);
+                g.vertex(-8, 8);
+                g.vertex(8, 8);
+                g.endShape(CLOSE);
+                // White stripe
+                g.fill(255);
+                g.rect(-5, 0, 10, 3);
+                // Base
+                g.fill(40);
+                g.rect(-10, 6, 20, 4);
+            }
+            else if (obs.type === 'barrier') {
+                // Red/white barrier block
+                g.rotate(obs.angle);
+                g.noStroke();
+                // Shadow
+                g.fill(0, 0, 0, 80);
+                g.rect(-obs.width / 2 + 2, -obs.height / 2 + 2, obs.width, obs.height, 3);
+                // Red stripes
+                for (let i = 0; i < 4; i++) {
+                    g.fill(i % 2 === 0 ? color(220, 50, 50) : color(255, 255, 255));
+                    g.rect(-obs.width / 2 + i * 10, -obs.height / 2, 10, obs.height);
+                }
+                g.stroke(100);
+                g.strokeWeight(1);
+                g.noFill();
+                g.rect(-obs.width / 2, -obs.height / 2, obs.width, obs.height, 3);
+            }
+            else if (obs.type === 'oil') {
+                // Dark oil slick with iridescent effect
+                g.noStroke();
+                // Main oil puddle
+                g.fill(25, 25, 35, 180);
+                g.ellipse(0, 0, obs.radius * 2, obs.radius * 1.5);
+                // Rainbow sheen
+                g.fill(80, 60, 120, 60);
+                g.ellipse(-5, -3, obs.radius * 1.2, obs.radius * 0.8);
+                g.fill(60, 100, 80, 50);
+                g.ellipse(8, 5, obs.radius * 0.8, obs.radius * 0.6);
+            }
+
+            g.pop();
+        }
     }
 
     /**

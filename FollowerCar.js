@@ -60,10 +60,18 @@ class FollowerCar extends Vehicule {
         const boundaryForce = this.avoidBoundary();
         boundaryForce.mult(this.boundaryWeight);
 
+        // Obstacle avoidance - AI steers around obstacles
+        let obstacleForce = createVector(0, 0);
+        if (this.track && this.track.getObstacleAvoidanceForce) {
+            obstacleForce = this.track.getObstacleAvoidanceForce(this.position, this.velocity, 80);
+            obstacleForce.mult(2.5);  // Strong avoidance
+        }
+
         this.applyForce(pathForce);
         this.applyForce(separationForce);
         this.applyForce(playerAvoid);
         this.applyForce(boundaryForce);
+        this.applyForce(obstacleForce);
     }
 
     followPath() {

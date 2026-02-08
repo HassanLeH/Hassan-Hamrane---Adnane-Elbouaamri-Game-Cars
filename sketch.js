@@ -511,11 +511,12 @@ function drawGameHUD() {
     textSize(10);
     text("↑↓←→ / WASD: Drive", width - 10, 10);
     text("SHIFT / N: NITRO 🔥", width - 10, 24);
-    text("D: Debug", width - 10, 38);
-    text("ESC: Restart", width - 10, 52);
-    text("M: Menu", width - 10, 66);
+    text("A: Auto Mode 🤖", width - 10, 38);
+    text("D: Debug", width - 10, 52);
+    text("ESC: Restart", width - 10, 66);
+    text("M: Menu", width - 10, 80);
     textSize(9);
-    text(`FPS: ${floor(frameRate())}`, width - 10, 80);
+    text(`FPS: ${floor(frameRate())}`, width - 10, 94);
 
     // Speed meter
     fill(0, 0, 0, 150);
@@ -542,6 +543,16 @@ function drawGameHUD() {
         textSize(16);
         textStyle(BOLD);
         text(`⚠️ POSITION ${playerPosition} - CATCH UP!`, width / 2, 10);
+        textStyle(NORMAL);
+    }
+
+    // Auto mode indicator
+    if (playerCar.autoMode) {
+        fill(50, 200, 255, 200);
+        textAlign(CENTER, TOP);
+        textSize(18);
+        textStyle(BOLD);
+        text("🤖 AUTO MODE", width / 2, 35);
         textStyle(NORMAL);
     }
 
@@ -572,6 +583,12 @@ function drawDebug() {
     line(playerCar.position.x, playerCar.position.y,
         playerCar.position.x + pv.x, playerCar.position.y + pv.y);
 
+    // === OBSTACLE DETECTION VISUALIZATION FOR ALL CARS ===
+    drawObstacleDetectionRays(playerCar, color(255, 255, 0));  // Yellow for player
+    for (let ai of aiCars) {
+        drawObstacleDetectionRays(ai, ai.carColor || color(255, 100, 100));
+    }
+
     fill(0, 0, 0, 180);
     noStroke();
     rect(0, height - 100, 200, 100, 0, 12, 0, 0);
@@ -588,6 +605,101 @@ function drawDebug() {
     text(`Position: ${playerPosition} / ${aiCars.length + 1}`, 10, height - 14);
 
     pop();
+}
+
+/**
+ * Draw obstacle detection rays for a car (left, center, right)
+ * Green = no obstacle detected, Red = obstacle detected
+ */
+function drawObstacleDetectionRays(car, baseColor) {
+    if (!car || !car.velocity || car.velocity.mag() < 0.1) return;
+
+    const lookAhead = 40;  // Distance to check for obstacles (reduced for closer detection)
+    const heading = car.velocity.heading();
+
+    // Three rays: left (-30°), center (0°), right (+30°)
+    const rayAngles = [
+        { name: 'left', angle: heading - PI / 6, offset: -1 },   // -30 degrees
+        { name: 'center', angle: heading, offset: 0 },            // straight ahead
+        { name: 'right', angle: heading + PI / 6, offset: 1 }     // +30 degrees
+    ];
+
+    for (let ray of rayAngles) {
+        // Calculate ray end point
+        const rayEnd = createVector(
+            car.position.x + cos(ray.angle) * lookAhead,
+            car.position.y + sin(ray.angle) * lookAhead
+        );
+
+        // Check if this ray detects any obstacle
+        let obstacleDetected = false;
+        let closestObsDist = Infinity;
+        let closestObsPos = null;
+
+        if (track && track.obstacles) {
+            for (let obs of track.obstacles) {
+                // Check if ray intersects with obstacle
+                const toObs = p5.Vector.sub(obs.position, car.position);
+                const rayDir = createVector(cos(ray.angle), sin(ray.angle));
+
+                // Project obstacle onto ray direction
+                const projection = p5.Vector.dot(toObs, rayDir);
+
+                // Only check obstacles ahead on this ray
+                if (projection > 0 && projection < lookAhead) {
+                    // Calculate perpendicular distance from ray to obstacle center
+                    const closestPointOnRay = p5.Vector.add(
+                        car.position,
+                        p5.Vector.mult(rayDir, projection)
+                    );
+                    const perpDist = p5.Vector.dist(closestPointOnRay, obs.position);
+
+                    // Check if ray passes through obstacle radius
+                    if (perpDist < obs.radius + 5) {
+                        obstacleDetected = true;
+                        if (projection < closestObsDist) {
+                            closestObsDist = projection;
+                            closestObsPos = obs.position.copy();
+                        }
+                    }
+                }
+            }
+        }
+
+        // Draw the ray
+        strokeWeight(2);
+        if (obstacleDetected) {
+            // Red ray if obstacle detected
+            stroke(255, 50, 50, 200);
+            line(car.position.x, car.position.y, rayEnd.x, rayEnd.y);
+
+            // Draw warning circle at obstacle position
+            noFill();
+            stroke(255, 0, 0, 150);
+            strokeWeight(3);
+            if (closestObsPos) {
+                ellipse(closestObsPos.x, closestObsPos.y, 25, 25);
+            }
+        } else {
+            // Green ray if no obstacle
+            stroke(50, 255, 50, 150);
+            line(car.position.x, car.position.y, rayEnd.x, rayEnd.y);
+        }
+
+        // Draw small indicator at ray end
+        noStroke();
+        fill(obstacleDetected ? color(255, 50, 50) : color(50, 255, 50));
+        ellipse(rayEnd.x, rayEnd.y, 6, 6);
+    }
+
+    // Draw car label for identification
+    fill(baseColor);
+    noStroke();
+    textSize(8);
+    textAlign(CENTER, CENTER);
+    if (car === playerCar) {
+        text("P", car.position.x, car.position.y - 20);
+    }
 }
 
 function keyPressed() {
@@ -607,6 +719,7 @@ function keyPressed() {
 
     if (gameState === 'playing') {
         if (key === 'd' || key === 'D') debugMode = !debugMode;
+        if (key === 'a' || key === 'A') playerCar.autoMode = !playerCar.autoMode;
         if (keyCode === ESCAPE) initLevel(currentLevel);
         if (key === 'm' || key === 'M') gameState = 'levelSelect';
         return;

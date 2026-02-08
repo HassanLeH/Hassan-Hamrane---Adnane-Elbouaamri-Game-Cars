@@ -9,7 +9,7 @@ class PlayerCar extends Vehicule {
 
         this.track = track;
         this.currentWaypointIndex = 0;
-        this.waypointReachDistance = 50;
+        this.waypointReachDistance = 65;  // Increased for wider tracks
 
         this.maxspeed = 6;
         this.nitroMaxspeed = 10;  // Speed when using nitro
@@ -28,6 +28,9 @@ class PlayerCar extends Vehicule {
         this.lastCheckpoint = 0;
         this.finished = false;
 
+        // Autopilot mode
+        this.autoMode = false;
+
         // Nitro system
         this.nitroFuel = 100;           // Current nitro fuel (0-100)
         this.nitroMaxFuel = 100;        // Maximum nitro fuel
@@ -39,6 +42,11 @@ class PlayerCar extends Vehicule {
 
         this.chassisWidth = 30;
         this.chassisHeight = 15;
+
+        // Obstacle effects
+        this.onOil = false;              // Currently on oil slick
+        this.oilTimer = 0;               // Duration of oil effect
+        this.slowdownTimer = 0;          // Duration of cone slowdown
 
         if (track && track.waypoints.length > 1) {
             const dir = p5.Vector.sub(track.waypoints[1], track.waypoints[0]);
@@ -76,6 +84,60 @@ class PlayerCar extends Vehicule {
 
         // NITRO (SHIFT or N key)
         this.nitroActive = (keyIsDown(SHIFT) || keyIsDown(78)) && this.nitroFuel > 0;
+    }
+
+    /**
+     * Autopilot mode - car drives itself following the track
+     */
+    handleAutoPilot() {
+        if (!this.track || this.track.waypoints.length === 0) return;
+
+        // Get next waypoint to target
+        const expectedNext = (this.lastCheckpoint + 1) % this.track.waypoints.length;
+        const target = this.track.waypoints[expectedNext];
+
+        // Calculate steering towards waypoint
+        const desired = p5.Vector.sub(target, this.position);
+        const distance = desired.mag();
+        desired.normalize();
+
+        // Arrival behavior - slow down when close
+        let speed = this.maxspeed;
+        if (distance < 100) {
+            speed = map(distance, 0, 100, 2, this.maxspeed);
+        }
+        desired.mult(speed);
+
+        // Calculate steering force
+        const steer = p5.Vector.sub(desired, this.velocity);
+        steer.limit(this.maxforce);
+
+        // Apply steering
+        this.velocity.add(steer);
+
+        // Update angle based on velocity
+        if (this.velocity.mag() > 0.5) {
+            this.angle = this.velocity.heading();
+        }
+
+        // Obstacle avoidance
+        if (this.track.getObstacleAvoidanceForce) {
+            const obstacleForce = this.track.getObstacleAvoidanceForce(this.position, this.velocity, 60);
+            obstacleForce.mult(2.0);
+            this.velocity.add(obstacleForce);
+        }
+
+        // Boundary avoidance
+        const boundaryForce = this.track.getTrackBoundaryForce(this.position, this.velocity);
+        boundaryForce.mult(1.5);
+        this.velocity.add(boundaryForce);
+
+        // Auto nitro when straight line and going fast
+        if (this.velocity.mag() > 4 && this.nitroFuel > 30) {
+            this.nitroActive = true;
+        } else {
+            this.nitroActive = false;
+        }
     }
 
     updateNitro() {
@@ -159,7 +221,12 @@ class PlayerCar extends Vehicule {
     update() {
         if (this.finished) return;
 
-        this.handleInput();
+        // Use autopilot or manual control
+        if (this.autoMode) {
+            this.handleAutoPilot();
+        } else {
+            this.handleInput();
+        }
         this.updateNitro();
 
         this.velocity.mult(this.friction);
@@ -176,8 +243,59 @@ class PlayerCar extends Vehicule {
         this.position.add(this.velocity);
 
         this.handleBoundary();
+        this.handleObstacles();
         this.checkWaypoints();
         this.edges();
+    }
+
+    /**
+     * Handle collision with obstacles
+     */
+    handleObstacles() {
+        if (!this.track) return;
+
+        const collision = this.track.checkObstacleCollision(this.position);
+
+        if (collision.hit) {
+            switch (collision.type) {
+                case 'cone':
+                    // Cone: slow down and slight bounce
+                    this.velocity.mult(0.7);
+                    this.slowdownTimer = 30;
+                    break;
+
+                case 'barrier':
+                    // Barrier: strong bounce back
+                    const bounceDir = p5.Vector.sub(this.position, collision.obstacle.position);
+                    bounceDir.normalize();
+                    bounceDir.mult(3);
+                    this.velocity.add(bounceDir);
+                    this.velocity.mult(0.5);
+                    break;
+
+                case 'oil':
+                    // Oil: reduce grip (sliding effect)
+                    this.onOil = true;
+                    this.oilTimer = 60;
+                    break;
+            }
+        }
+
+        // Apply oil sliding effect
+        if (this.oilTimer > 0) {
+            this.oilTimer--;
+            this.drift_factor = 0.98;  // More sliding
+            if (this.oilTimer <= 0) {
+                this.drift_factor = 0.90;  // Reset to normal
+                this.onOil = false;
+            }
+        }
+
+        // Apply cone slowdown
+        if (this.slowdownTimer > 0) {
+            this.slowdownTimer--;
+            this.velocity.mult(0.98);
+        }
     }
 
     handleBoundary() {
@@ -200,7 +318,8 @@ class PlayerCar extends Vehicule {
             this.lastCheckpoint = expectedNext;
             this.checkpointsReached++;
 
-            if (expectedNext === 0 && this.checkpointsReached > this.track.waypoints.length / 2) {
+            // Lap completion: reached waypoint 0 after going through most of the track
+            if (expectedNext === 0 && this.checkpointsReached >= this.track.waypoints.length * 0.8) {
                 this.laps++;
                 this.checkpointsReached = 0;
             }
