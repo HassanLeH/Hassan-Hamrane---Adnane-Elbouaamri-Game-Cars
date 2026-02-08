@@ -1,7 +1,3 @@
-Voici la version complète et finale de votre fichier `README.md`. Il est structuré de manière académique pour mettre en valeur à la fois le résultat ludique et la profondeur technique du projet.
-
-Vous pouvez copier-coller ce contenu directement dans un fichier nommé `README.md` à la racine de votre dossier projet.
-
 ---
 
 # 🏎️ Race Challenge - Simulation de Course 2D
